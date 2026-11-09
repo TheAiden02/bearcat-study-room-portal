@@ -1,7 +1,9 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, RootModel
 from datetime import datetime, time
+import uuid
+import asyncio
 import psycopg2
 
 app = FastAPI()
@@ -34,7 +36,7 @@ class GetReservationsRequest(BaseModel):
 
 
 
-# Helper functions
+# Helper functions (Synchronous)
 # -----------------------------------------------
 def validate_user(user_email):
     sql = '''
@@ -53,7 +55,7 @@ def validate_user(user_email):
     
 def validate_room_ID(room_id):
     sql = '''
-        SELECT * FROM StudyRoom WHERE room_id = %s
+        SELECT * FROM StudyRoom WHERE RoomID = %s
     '''
 
     try:
@@ -65,6 +67,22 @@ def validate_room_ID(room_id):
         return True
 
     return False
+
+# Connection Management
+# -----------------------------------------------
+class ConnectionManager:
+    def __init__(self):
+        self.connections: dict[uuid.UUID, WebSocket]
+        self.event_queue: list
+
+    def buffer_event(self, event):
+        self.event_queue.append(event)
+
+    async def register_connection(self, websocket: WebSocket):
+        await websocket.accept()
+        connection_id = uuid.uuid4()
+        self.connections[connection_id] = websocket
+
 
 # API Endpoints
 # -----------------------------------------------
@@ -140,11 +158,11 @@ def get_reservations(
         query_args.append(request.user_email)
 
     if request.start_datetime:
-        sql += " AND StartTime > %(start_dt)s"
+        sql += " AND StartDateTime > %(start_dt)s"
         query_args.append(request.start_datetime)
 
     if request.end_datetime:
-        sql += " AND EndTime < %(end_dt)s"
+        sql += " AND EndDateTime < %(end_dt)s"
         query_args.append(request.end_datetime)
 
     try:
