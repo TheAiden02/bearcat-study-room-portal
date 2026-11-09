@@ -19,68 +19,91 @@ DB = DB_CONN.cursor()
 
 # Request/Response Models
 # -----------------------------------------------
-class ReservationRequest(BaseModel):
+class BookReservationRequest(BaseModel):
     room_id: int
     user_email: str
-    start_datetime: str
-    end_datetime: str
+    start_datetime: datetime
+    end_datetime: datetime
+
+class GetReservationsRequest(BaseModel):
+    room_id: int = None
+    user_email: str = None
+    start_datetime: datetime = None
+    end_datetime: datetime = None
+
 
 
 
 # Helper functions
 # -----------------------------------------------
+def validate_user(user_email):
+    sql = '''
+        SELECT * FROM Student WHERE UCEmail = %s
+    '''
 
+    try:
+        DB.execute(sql, user_email)
+    except:
+        raise HTTPException("500", "validate_user(): database error")
 
+    if DB.fetchone() is not None:
+        return True
 
+    return False
+    
+def validate_room_ID(room_id):
+    sql = '''
+        SELECT * FROM StudyRoom WHERE room_id = %s
+    '''
 
+    try:
+         DB.execute(sql, room_id)
+    except:
+        raise HTTPException("500", "validate_room_ID(): database error")
 
+    if DB.fetchone() is not None:
+        return True
+
+    return False
 
 # API Endpoints
 # -----------------------------------------------
 
-@app.get("/request_reservation")
+@app.post("/request_reservation")
 def request_reservation(
-    request: ReservationRequest
+    request: BookReservationRequest
 ):
-    # Validate datetime parameters
-    format_string = "%a %b %d %Y %H:%M:%S GMT%z (%Z)"
-    try:
-        start_dt = datetime.strptime(request.start_datetime, format_string)
-    except:
-        raise HTTPException(400, "Invalid format for start_datetime")
-
-    try:
-        end_dt = datetime.strptime(request.end_datetime, format_string)
-    except:
-        raise HTTPException(400, "Invalid format for end_datetime")
-
     # Validate room id, user email
+    if not validate_user(request.user_email):
+        raise HTTPException("400", f"User {request.user_email} could not be found.")
 
-    # HERE
-        
+    if not validate_room_ID(request.room_id):
+        raise HTTPException("400", f"A room with ID {request.room_id} could not be found")
+
     # Check for reservation availability
     sql = '''
         SELECT * FROM Reservation 
         WHERE 
             RoomID = %(room_id)s and
-            StartDateTime > %(start)s and EndDateTime > %(end)s or
-            StartDateTime < %(start)s and EndDateTime < %(end)s
+            StartDateTime < %(end)s and 
+            EndDateTime > %(start)s 
     '''
     try:
         DB.execute(
             sql,
             {
                 'room_id': request.room_id,
-                'start': start_dt,
-                'end': end_dt
+                'start': request.start_datetime,
+                'end': request.end_datetime
             }
         )
     except:
         raise HTTPException(500, "Database error")
 
-    if DB.fetchone() is None:
+    if DB.fetchone():
         raise HTTPException(400, "Conflict with existing reservation. Choose a different room or time")
 
+    # Book reservation
     sql = '''
         INSERT INTO Reservation (UCEmail, RoomID, StartDateTime, EndDateTime)
         VALUES (%s, %s, %s, %s)
@@ -96,7 +119,41 @@ def request_reservation(
     
     return "success"
 
+@app.get("/get_reservations")
+def get_reservations(
+        request: GetReservationsRequest
+):
+    if request.user_email and not validate_user(request.user_email):
+        raise HTTPException("400", f"User {request.user_email} could not be found")
 
+    if request.room_id and not validate_room_ID(request.room_id):
+        raise HTTPException("400", f"A room with ID {request.room_id} could not be found")
 
+    query_args = []
+
+    sql = '''
+        SELECT * FROM Reservation WHERE 1 = 1
+    '''
+
+    if request.user_email:
+        sql += " AND UCEmail = %(user_email)s"
+        query_args.append(request.user_email)
+
+    if request.start_datetime:
+        sql += " AND StartTime > %(start_dt)s"
+        query_args.append(request.start_datetime)
+
+    if request.end_datetime:
+        sql += " AND EndTime < %(end_dt)s"
+        query_args.append(request.end_datetime)
+
+    try:
+        DB.execute(
+            sql,
+            query_args
+        )
+    except:
+        raise HTTPException(500, "Database error")
     
-    
+    return DB.fetchall()
+
