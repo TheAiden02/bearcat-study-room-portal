@@ -1,4 +1,5 @@
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+import json
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, RootModel
 from datetime import datetime, time
@@ -78,13 +79,57 @@ class ConnectionManager:
     def buffer_event(self, event):
         self.event_queue.append(event)
 
-    async def register_connection(self, websocket: WebSocket):
+    async def register_connection(self, conn_id: uuid, websocket: WebSocket):
         await websocket.accept()
-        connection_id = uuid.uuid4()
-        self.connections[connection_id] = websocket
+        self.connections[conn_id] = websocket
+
+    async def handle_disconnect(self, conn_id: uuid):
+        pass
+
+    async def process_events(self):
+        """
+        If a user makes, updates, or deletes a reservation, rebuild room availability snapshot.
+        It's worth considering if we even need to track individual events since really, the only event is 
+        'Room availability (might have) changed, update all websocket clients'.
+
+        """
+        pass
+
+    async def broadcast_availability(self):
+        """
+        Broadcast a snapshot of room availability to all websocket clients
+        """
+        pass
 
 
-# API Endpoints
+
+ws_manager = ConnectionManager()
+
+# API WS Endpoint
+# -----------------------------------------------
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+
+    connection_id = uuid.uuid4
+
+    await ws_manager.register_connection(connection_id, websocket)
+
+    try:
+        while True:
+            raw_data = await websocket.receive_text()
+            try:
+                request_data = json.loads(raw_data)
+                print(request_data)
+                ws_manager.buffer_event(request_data)
+            except json.JSONDecodeError:
+                pass  # Cleanly drop invalid string frames
+
+    except WebSocketDisconnect:
+        await ws_manager.handle_disconnect(connection_id)
+
+
+
+# API REST Endpoints
 # -----------------------------------------------
 
 @app.post("/request_reservation")
