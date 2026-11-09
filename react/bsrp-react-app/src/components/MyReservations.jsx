@@ -1,4 +1,4 @@
-import { formatDate, formatTime } from '../utils/reservationUtils';
+import { formatDate, formatTime } from '../utils/ReservationUtils';
 
 // Lists the signed-in student's upcoming and previous reservations
 function MyReservations({ reservations, rooms, onEdit, onCancel }) {
