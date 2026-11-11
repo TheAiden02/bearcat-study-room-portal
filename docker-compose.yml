@@ -1,0 +1,18 @@
+# Local dev: `docker compose up --build`  ->  web http://localhost:5173, api http://localhost:8000
+services:
+  api:
+    build: ./api
+    ports:
+      - "8000:8000"
+    # environment:
+    #   DATABASE_URL: ...   (server.py doesn't read a DB URL yet)
+
+  web:
+    build:
+      context: ./react/bsrp-react-app
+      args:
+        VITE_API_URL: http://localhost:8000
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
