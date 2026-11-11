@@ -5,6 +5,7 @@ import MyReservations from './components/MyReservations';
 import ReservationNewEdit from './components/ReservationNewEdit.jsx';
 import ErrorModal from './components/ErrorModal';
 import { initialReservations, studyRooms } from './data/DummyData';
+import Map from './components/Map';
 import {
   SLOT_MINUTES,
   ceilToSlot,
@@ -193,6 +194,7 @@ function App() {
             onCancel={handleCancelReservation}
           />
         )}
+        <Map />
       </main>
 
       {/* Pop-ups */}
