@@ -12,20 +12,21 @@ Works the same on macOS and Windows. Docker runs everything (web app, API and a 
 
 ### Git
 - **Mac:** `xcode-select --install` (or `brew install git`)
-- **Windows:** https://git-scm.com/download/win
+- **Windows:** [Git for Windows](https://git-scm.com/download/win)
+- **Mac:** [git-scm.com/download/mac](https://git-scm.com/download/mac) also works
 
 ### Docker
 
 **Windows**
-1. Install [Docker Desktop](https://www.docker.com/products/docker-desktop/). Leave "Use WSL 2" ticked when asked.
+1. Download [Docker Desktop for Windows](https://docs.docker.com/desktop/setup/install/windows-install/) (direct installers: [AMD64/Intel](https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe), [ARM64](https://desktop.docker.com/win/main/arm64/Docker%20Desktop%20Installer.exe)). Leave "Use WSL 2" ticked when asked.
 2. Restart if prompted, then launch Docker Desktop and wait until it says it is running.
 3. Check in PowerShell: `docker --version` and `docker compose version`.
 
-If Docker Desktop complains about virtualization, enable virtualization (Intel VT-x / AMD-V) in your BIOS, and run `wsl --install` in an admin PowerShell.
+If Docker Desktop complains about virtualization, enable virtualization (Intel VT-x / AMD-V) in your BIOS, and run `wsl --install` in an admin PowerShell ([WSL install docs](https://learn.microsoft.com/en-us/windows/wsl/install)).
 
 **Mac** (pick one)
-- **Docker Desktop:** https://www.docker.com/products/docker-desktop/. Install, launch, wait for it to start. Note that Docker Desktop has licensing terms for larger organizations.
-- **Colima (free, command line):**
+- **Docker Desktop:** [install guide](https://docs.docker.com/desktop/setup/install/mac-install/) (direct downloads: [Apple Silicon](https://desktop.docker.com/mac/main/arm64/Docker.dmg), [Intel](https://desktop.docker.com/mac/main/amd64/Docker.dmg)). Install, launch, wait for it to start. Note that Docker Desktop has licensing terms for larger organizations.
+- **[Colima](https://github.com/abiosoft/colima) (free, command line)**, installed with [Homebrew](https://brew.sh):
   ```bash
   brew install docker docker-compose colima
   colima start
@@ -88,11 +89,11 @@ npm ci
 npm run dev
 ```
 
-Vite prints the URL (usually http://localhost:5173, so stop the Docker `web` service first if it is running). This needs Node 22+.
+Vite prints the URL (usually http://localhost:5173, so stop the Docker `web` service first if it is running). This needs Node 22+ ([download](https://nodejs.org/en/download)).
 
 ## Running the API without Docker (optional)
 
-Needs Python 3.12 and a running Postgres (for example `docker compose up -d db`).
+Needs Python 3.12 ([download](https://www.python.org/downloads/)) and a running Postgres (for example `docker compose up -d db`).
 
 macOS / Linux:
 ```bash
