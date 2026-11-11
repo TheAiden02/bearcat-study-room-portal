@@ -1,7 +1,10 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+import json
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, RootModel
 from datetime import datetime, time
+import uuid
+import asyncio
 import psycopg2
 
 app = FastAPI()
@@ -34,7 +37,7 @@ class GetReservationsRequest(BaseModel):
 
 
 
-# Helper functions
+# Helper functions (Synchronous)
 # -----------------------------------------------
 def validate_user(user_email):
     sql = '''
@@ -53,7 +56,7 @@ def validate_user(user_email):
     
 def validate_room_ID(room_id):
     sql = '''
-        SELECT * FROM StudyRoom WHERE room_id = %s
+        SELECT * FROM StudyRoom WHERE RoomID = %s
     '''
 
     try:
@@ -66,7 +69,67 @@ def validate_room_ID(room_id):
 
     return False
 
-# API Endpoints
+# Connection Management
+# -----------------------------------------------
+class ConnectionManager:
+    def __init__(self):
+        self.connections: dict[uuid.UUID, WebSocket]
+        self.event_queue: list
+
+    def buffer_event(self, event):
+        self.event_queue.append(event)
+
+    async def register_connection(self, conn_id: uuid, websocket: WebSocket):
+        await websocket.accept()
+        self.connections[conn_id] = websocket
+
+    async def handle_disconnect(self, conn_id: uuid):
+        pass
+
+    async def process_events(self):
+        """
+        If a user makes, updates, or deletes a reservation, rebuild room availability snapshot.
+        It's worth considering if we even need to track individual events since really, the only event is 
+        'Room availability (might have) changed, update all websocket clients'.
+
+        """
+        pass
+
+    async def broadcast_availability(self):
+        """
+        Broadcast a snapshot of room availability to all websocket clients
+        """
+        pass
+
+
+
+ws_manager = ConnectionManager()
+
+# API WS Endpoint
+# -----------------------------------------------
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+
+    connection_id = uuid.uuid4
+
+    await ws_manager.register_connection(connection_id, websocket)
+
+    try:
+        while True:
+            raw_data = await websocket.receive_text()
+            try:
+                request_data = json.loads(raw_data)
+                print(request_data)
+                ws_manager.buffer_event(request_data)
+            except json.JSONDecodeError:
+                pass  # Cleanly drop invalid string frames
+
+    except WebSocketDisconnect:
+        await ws_manager.handle_disconnect(connection_id)
+
+
+
+# API REST Endpoints
 # -----------------------------------------------
 
 @app.post("/request_reservation")
@@ -140,11 +203,11 @@ def get_reservations(
         query_args.append(request.user_email)
 
     if request.start_datetime:
-        sql += " AND StartTime > %(start_dt)s"
+        sql += " AND StartDateTime > %(start_dt)s"
         query_args.append(request.start_datetime)
 
     if request.end_datetime:
-        sql += " AND EndTime < %(end_dt)s"
+        sql += " AND EndDateTime < %(end_dt)s"
         query_args.append(request.end_datetime)
 
     try:
