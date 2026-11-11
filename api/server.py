@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, RootModel
 from datetime import datetime, time
 import uuid
 import asyncio
+import os
 import psycopg2
 
 app = FastAPI()
@@ -16,7 +17,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DB_CONN = psycopg2.connect('database connection goes here')
+DB_CONN = psycopg2.connect(os.environ["DATABASE_URL"])
 DB = DB_CONN.cursor()
 
 

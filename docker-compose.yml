@@ -1,0 +1,44 @@
+# Local dev: `docker compose up --build`  ->  web http://localhost:5173, api http://localhost:8000
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bsrp
+      POSTGRES_PASSWORD: bsrp
+      POSTGRES_DB: bsrp
+    ports:
+      - "5432:5432"
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+      # Run on first start only, in FK order (Reservation references the other two).
+      # example.sql is a template and isn't valid SQL, so it's skipped.
+      - ./database/student.sql:/docker-entrypoint-initdb.d/1-student.sql:ro
+      - ./database/study_room.sql:/docker-entrypoint-initdb.d/2-study_room.sql:ro
+      - ./database/reservation.sql:/docker-entrypoint-initdb.d/3-reservation.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bsrp -d bsrp"]
+      interval: 3s
+      retries: 20
+
+  api:
+    build: ./api
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://bsrp:bsrp@db:5432/bsrp
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./react/bsrp-react-app
+      args:
+        VITE_API_URL: http://localhost:8000
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+
+volumes:
+  dbdata:
