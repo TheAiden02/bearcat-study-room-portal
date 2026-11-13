@@ -3,7 +3,6 @@ DROP TABLE IF EXISTS Student;
 CREATE TABLE Student (
     UCEmail VARCHAR(100) PRIMARY KEY,
     FirstName VARCHAR(50) NOT NULL,
-    LastName VARCHAR(50) NOT NULL,
-    Username VARCHAR(50) NOT NULL
+    LastName VARCHAR(50) NOT NULL
 );
 
