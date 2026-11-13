@@ -8,6 +8,8 @@ import asyncio
 import os
 import psycopg2
 
+# TODO: update database calls to rollback transactions and close the cursor+connection on error
+
 app = FastAPI()
 
 app.add_middleware(
@@ -17,10 +19,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DB_CONN = psycopg2.connect(os.environ["DATABASE_URL"])
-DB = DB_CONN.cursor()
-
-
 # Request/Response Models
 # -----------------------------------------------
 class BookReservationRequest(BaseModel):
@@ -29,28 +27,49 @@ class BookReservationRequest(BaseModel):
     start_datetime: datetime
     end_datetime: datetime
 
-class GetReservationsRequest(BaseModel):
+class GetMyReservationsRequest(BaseModel):
     room_id: int = None
     user_email: str = None
     start_datetime: datetime = None
     end_datetime: datetime = None
 
+class UpdateReservationRequest(BaseModel):
+    reservation_id: uuid.UUID
+    new_room_id: int = None
+    new_start_datetime: datetime = None
+    new_end_datetime: datetime = None
 
+class LoginRequest(BaseModel):
+    user_email: str
 
+class SignupRequest(BaseModel):
+    user_email: str
+    first_name: str
+    last_name: str
 
 # Helper functions (Synchronous)
 # -----------------------------------------------
+def get_db_conn():
+    return psycopg2.connect(os.environ["DATABASE_URL"])
+
+
 def validate_user(user_email):
     sql = '''
         SELECT * FROM Student WHERE UCEmail = %s
     '''
-
+    conn = get_db_conn()
     try:
-        DB.execute(sql, user_email)
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, user_email)
+                result = cur.fetchone()
     except:
         raise HTTPException("500", "validate_user(): database error")
+    finally:
+        conn.close()
 
-    if DB.fetchone() is not None:
+
+    if result is not None:
         return True
 
     return False
@@ -60,12 +79,18 @@ def validate_room_ID(room_id):
         SELECT * FROM StudyRoom WHERE RoomID = %s
     '''
 
+    conn = get_db_conn()
     try:
-         DB.execute(sql, room_id)
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, room_id)
+                result = cur.fetchone()
     except:
         raise HTTPException("500", "validate_room_ID(): database error")
+    finally:
+        conn.close()
 
-    if DB.fetchone() is not None:
+    if result is not None:
         return True
 
     return False
@@ -133,6 +158,39 @@ async def websocket_endpoint(websocket: WebSocket):
 # API REST Endpoints
 # -----------------------------------------------
 
+@app.post("/login")
+def login(
+    request: LoginRequest
+):
+    return validate_user(request.user_email)
+
+@app.post("/signup")
+def signup(
+    request: SignupRequest
+):
+    if validate_user(request.user_email):
+        raise HTTPException("400", "Cannot create user. Username has already been taken.")
+
+    # TODO: Consider adding pattern-matching email validation
+
+    sql = """
+        INSERT INTO Student (UCEmail, FirstName, LastName)
+        VALUES (%s, %s, %s)
+    """
+    conn = get_db_conn()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, (request.user_email, request.first_name, request.last_name))
+    except:
+        raise HTTPException("500", "Database error. User was not created")
+    finally:
+        conn.close()
+
+    return request.user_email
+
+
+
 @app.post("/request_reservation")
 def request_reservation(
     request: BookReservationRequest
@@ -152,19 +210,25 @@ def request_reservation(
             StartDateTime < %(end)s and 
             EndDateTime > %(start)s 
     '''
+    conn = get_db_conn()
     try:
-        DB.execute(
-            sql,
-            {
-                'room_id': request.room_id,
-                'start': request.start_datetime,
-                'end': request.end_datetime
-            }
-        )
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    sql,
+                    {
+                        'room_id': request.room_id,
+                        'start': request.start_datetime,
+                        'end': request.end_datetime
+                    }
+                )
+                result = cur.fetchone()
     except:
         raise HTTPException(500, "Database error")
+    finally:
+        conn.close()
 
-    if DB.fetchone():
+    if result:
         raise HTTPException(400, "Conflict with existing reservation. Choose a different room or time")
 
     # Book reservation
@@ -172,20 +236,90 @@ def request_reservation(
         INSERT INTO Reservation (UCEmail, RoomID, StartDateTime, EndDateTime)
         VALUES (%s, %s, %s, %s)
     '''
-
+    conn = get_db_conn()
     try:
-        DB.execute(
-            sql,
-            (request.user_email, request.room_id, request.start_datetime, request.end_datetime)
-        )
+        with conn:
+            with conn.cursor as cur:
+                cur.execute(
+                    sql,
+                    (request.user_email, request.room_id, request.start_datetime, request.end_datetime)
+                )
     except:
         raise HTTPException(500, "Database error")
+    finally:
+        conn.close()
     
     return "success"
 
-@app.get("/get_reservations")
-def get_reservations(
-        request: GetReservationsRequest
+@app.post("/update_reservation")
+def update_reservation(
+    request: UpdateReservationRequest
+):
+    # Validate incoming data
+    if request.user_email and not validate_user(request.user_email):
+        raise HTTPException("400", f"User {request.user_email} could not be found")
+
+    if request.new_room_id and not validate_room_ID(request.room_id):
+        raise HTTPException("400", f"A room with ID {request.room_id} could not be found")
+
+    if request.new_start_datetime ^ request.new_end_datetime:
+        raise HTTPException("400", f"new_start_datetime and new_end_datetime must be sent together.")
+
+    # Confirm that the reservation exists
+    sql = """
+        SELECT * FROM Reservation WHERE ReservationID = %s
+    """
+    conn = get_db_conn()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(sql, request.reservation_id)
+                result = cur.fetchone()
+    except:
+        raise HTTPException(500, "Database error")
+    finally:
+        conn.close()
+
+    if not result:
+        raise HTTPException(400, "Update reservation failed. ReservationID could not be found")
+
+    # Update the reservation
+    param_str = []
+    col_vals = []
+    col_names = []
+
+    # This dynamically builds the parameter string and parameter list because most of the
+    # fields are optional
+    for attr, value in vars(request).items():
+        if value:
+            param_str.append("%s")
+            col_vals.append(value)
+            if attr == "new_room_id":
+                col_names.append("RoomID")
+            elif attr == "new_start_datetime":
+                col_names.append("StartDateTime")
+            elif attr == "new_end_datetime":
+                col_names.append("EndDateTime")
+
+    sql = f"""
+        UPDATE Reservation SET ({", ".join(param_str)}) = ({", ".join(param_str)})
+        WHERE ReservationID = %s
+    """
+    conn = get_db_conn()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute("sql", col_names.extend(col_vals).append(request.reservation_id))
+    except:
+        raise HTTPException(500, "Database error. The reservation could not be updated")
+    finally:
+        conn.close()
+
+    return request.reservation_id
+
+@app.get("/get_my_reservations")
+def get_my_reservations(
+        request: GetMyReservationsRequest
 ):
     if request.user_email and not validate_user(request.user_email):
         raise HTTPException("400", f"User {request.user_email} could not be found")
@@ -211,13 +345,17 @@ def get_reservations(
         sql += " AND EndDateTime < %(end_dt)s"
         query_args.append(request.end_datetime)
 
+    conn = get_db_conn()
     try:
-        DB.execute(
-            sql,
-            query_args
-        )
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    sql,
+                    query_args
+                )
+                result = cur.fetchall()
     except:
         raise HTTPException(500, "Database error")
     
-    return DB.fetchall()
+    return result
 
