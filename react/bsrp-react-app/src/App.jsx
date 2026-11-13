@@ -4,14 +4,15 @@ import Login from './components/Login';
 import MyReservations from './components/MyReservations';
 import ReservationNewEdit from './components/ReservationNewEdit.jsx';
 import ErrorModal from './components/ErrorModal';
-import { initialReservations, studyRooms } from './data/dummyData';
+import { initialReservations, studyRooms } from './data/DummyData';
+import Map from './components/Map';
 import {
   SLOT_MINUTES,
   ceilToSlot,
   formatTime,
   getRoomStatus,
   toInputValue,
-} from './utils/reservationUtils';
+} from './utils/ReservationUtils';
 
 const getNextId = (reservations) => Math.max(0, ...reservations.map((item) => item.ReservationID)) + 1;
 
@@ -193,6 +194,7 @@ function App() {
             onCancel={handleCancelReservation}
           />
         )}
+        <Map />
       </main>
 
       {/* Pop-ups */}

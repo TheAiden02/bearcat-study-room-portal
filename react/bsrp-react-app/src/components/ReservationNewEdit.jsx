@@ -8,7 +8,7 @@ import {
   formatTime,
   getDurationMinutes,
   toInputValue,
-} from '../utils/reservationUtils';
+} from '../utils/ReservationUtils';
 
 const NOISE_OPTIONS = ['Quiet', 'Moderate', 'Group Discussion'];
 const DURATION_OPTIONS = [30, 60, 90, 120, 150, 180, 210, 240];
