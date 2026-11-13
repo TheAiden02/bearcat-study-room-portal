@@ -100,13 +100,6 @@ function ReservationNewEdit({ room, reservation = null, initialStart, reservatio
           ))}
         </select>
 
-        <label htmlFor="noise">Noise preference</label>
-        <select id="noise" value={noisePreference} onChange={(event) => setNoisePreference(event.target.value)}>
-          {NOISE_OPTIONS.map((option) => (
-            <option key={option} value={option}>{option}</option>
-          ))}
-        </select>
-
         {validationMessage && <p className="form-error" role="alert">{validationMessage}</p>}
 
         <div className="modal-actions">
