@@ -1,16 +1,25 @@
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends
 import json
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field, RootModel
-from datetime import datetime, time
+from datetime import datetime, timedelta, timezone
 import uuid
-import asyncio
+import jwt
 import os
 import psycopg2
 
-# TODO: update database calls to rollback transactions and close the cursor+connection on error
 
 app = FastAPI()
+
+# Configuration for json web tokens (jwt)
+# -----------------------------------------------
+SECRET_KEY = "arbitrary-string" # TODO: Replace with environment variable
+ALGORITHM = "HS256"
+TOKEN_LIFETIME_MIN = 360 # Token expires after 6 hours
+
+security = HTTPBearer()
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,14 +33,12 @@ app.add_middleware(
 # -----------------------------------------------
 class BookReservationRequest(BaseModel):
     room_id: int
-    user_email: str
     start_datetime: datetime
     end_datetime: datetime
 
 
 class GetMyReservationsRequest(BaseModel):
     room_id: int = None
-    user_email: str = None
     start_datetime: datetime = None
     end_datetime: datetime = None
 
@@ -55,6 +62,24 @@ class SignupRequest(BaseModel):
 
 # Helper functions (Synchronous)
 # -----------------------------------------------
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """
+    Decodes the passed jwt and raises an error if the username passed does not match the username in the token
+    """
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, SECRET_KEY, [ALGORITHM])
+        username = payload.get("sub")
+        if username is None:
+            raise HTTPException(401, "Invalid authentication token")
+        return username
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(401, "Token has expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(401, "Invalid authentication token")
+
+        
+
 def get_db_conn():
     return psycopg2.connect(os.environ["DATABASE_URL"])
 
@@ -163,11 +188,23 @@ async def websocket_endpoint(websocket: WebSocket):
 
 # API REST Endpoints
 # -----------------------------------------------
-
-
 @app.post("/login")
 def login(request: LoginRequest):
-    return validate_user(request.user_email)
+    user_exists = validate_user(request.user_email)
+    if not user_exists:
+        raise HTTPException("401", "Invalid username or password")
+
+    # TODO: validate password
+
+    expiration = datetime.now(timezone.utc) + timedelta(minutes=TOKEN_LIFETIME_MIN)
+
+    token_data = {
+        "usr": request.user_email,
+        "exp": expiration
+    }
+
+    token = jwt.encode(token_data, SECRET_KEY, ALGORITHM)
+    return {"access_token": token, "token_type": "bearer"}
 
 
 @app.post("/signup")
@@ -199,10 +236,10 @@ def signup(request: SignupRequest):
 
 
 @app.post("/request_reservation")
-def request_reservation(request: BookReservationRequest):
+def request_reservation(request: BookReservationRequest, current_user: str = Depends(get_current_user)):
     # Validate room id, user email
-    if not validate_user(request.user_email):
-        raise HTTPException("400", f"User {request.user_email} could not be found.")
+    if not validate_user(current_user):
+        raise HTTPException("400", f"User {current_user} could not be found.")
 
     if not validate_room_ID(request.room_id):
         raise HTTPException(
@@ -254,7 +291,7 @@ def request_reservation(request: BookReservationRequest):
                     sql,
                     (
                         reservation_id,
-                        request.user_email,
+                        current_user,
                         request.room_id,
                         request.start_datetime,
                         request.end_datetime,
@@ -269,7 +306,9 @@ def request_reservation(request: BookReservationRequest):
 
 
 @app.post("/update_reservation")
-def update_reservation(request: UpdateReservationRequest):
+def update_reservation(request: UpdateReservationRequest, current_user: str = Depends(get_current_user)):
+    # TODO: verify that the user sending the request is also the owner of the reservation
+
     # Validate incoming data
     if request.user_email and not validate_user(request.user_email):
         raise HTTPException("400", f"User {request.user_email} could not be found")
@@ -342,9 +381,9 @@ def update_reservation(request: UpdateReservationRequest):
 
 
 @app.get("/get_my_reservations")
-def get_my_reservations(request: GetMyReservationsRequest):
-    if request.user_email and not validate_user(request.user_email):
-        raise HTTPException("400", f"User {request.user_email} could not be found")
+def get_my_reservations(request: GetMyReservationsRequest, current_user: str = Depends(get_current_user)):
+    if current_user and not validate_user(current_user):
+        raise HTTPException("400", f"User {current_user} could not be found")
 
     if request.room_id and not validate_room_ID(request.room_id):
         raise HTTPException(
@@ -357,16 +396,16 @@ def get_my_reservations(request: GetMyReservationsRequest):
         SELECT * FROM Reservation WHERE 1 = 1
     """
 
-    if request.user_email:
-        sql += " AND UCEmail = %(user_email)s"
-        query_args.append(request.user_email)
+    if current_user:
+        sql += " AND UCEmail = %s"
+        query_args.append(current_user)
 
     if request.start_datetime:
-        sql += " AND StartDateTime > %(start_dt)s"
+        sql += " AND StartDateTime > %s"
         query_args.append(request.start_datetime)
 
     if request.end_datetime:
-        sql += " AND EndDateTime < %(end_dt)s"
+        sql += " AND EndDateTime < %s"
         query_args.append(request.end_datetime)
 
     conn = get_db_conn()
