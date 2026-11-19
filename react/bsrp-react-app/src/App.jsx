@@ -194,7 +194,7 @@ function App() {
             onCancel={handleCancelReservation}
           />
         )}
-        <Map />
+        {/* <Map /> */}
       </main>
 
       {/* Pop-ups */}
